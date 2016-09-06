@@ -135,6 +135,14 @@ func (m *machine) MatchID(ID string) bool {
 	return m.machID == ID || m.ShortID() == ID
 }
 
+func (m *machine) Info() *MachineInfo {
+	return &MachineInfo {
+		HostName:	m.hostName,
+		PublicIP:	m.publicIP,
+		Offset:		m.offset,	
+		}
+}
+
 func (m *machine) Status() *MachineStatus {
 	return &MachineStatus{
 		MachID:  m.machID,

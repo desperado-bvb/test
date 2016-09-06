@@ -4,7 +4,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/pingcap/tin-binlog/storage/etcd"
+	etcd "github.com/pingcap/tidb-binlog/util/etcdutil"
 	"golang.org/x/net/context"
 )
 

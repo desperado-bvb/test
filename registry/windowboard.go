@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/pingcap/tidb-binlog/storage/etcd"
+	etcd "github.com/pingcap/tidb-binlog/util/etcdutil"
 )
 
 const WindowBoardPrefix = "windowBoard"

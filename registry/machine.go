@@ -6,7 +6,7 @@ import (
 	"errors"
 
 	"github.com/ngaut/log"
-	"github.com/pingcap/tidb-binlog/storage/etcd"
+	etcd "github.com/pingcap/tidb-binlog/util/etcdutil"
 	"github.com/pingcap/tidb-binlog/machine"
 )
 
@@ -78,7 +78,7 @@ func machineStatusFromEtcdNode(machID string, node *etcd.Node) (*machine.Machine
 	return status, nil
 }
 
-func (r *EtcdRegistry) RegisterMachine(machID, hostName, hostRegion, hostIDC, publicIP string) error {
+func (r *EtcdRegistry) RegisterMachine(machID, hostName,  publicIP string) error {
 	if exists, err := r.checkMachineExists(machID); err != nil {
 		return err
 	} else if !exists {
