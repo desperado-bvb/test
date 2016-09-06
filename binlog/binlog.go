@@ -16,12 +16,11 @@ var (
 type Binlog struct {
 	dir		string
 
-	start		*Offset.Offset
-	decider		*decoder
+	start		*binlogscheme.BinlogOffset
+	decoder		*decoder
 	readClose	func() error
 	
 	mu		sync.Mutex
-	enti		int64
 	encoder		*encoder
 	
 	locks           []*fileutil.LockedFile
@@ -65,24 +64,26 @@ func Create(dirpath string) (*Binlog, error) {
 	return binlog.renameFile(tmpdirpath)
 }
 
-func Open(dirpath string, offset *Offset.Offset) (*Binlog, error) {
+func Open(dirpath string, offset *binlogscheme.BinlogOffset) (*Binlog, error) {
 	return openAtIndex(dirpath, offset, true)
 } 
 
-func OpenForRead(dirpath string, offset *Offset.Offset) (*Binlog, error) {
+func OpenForRead(dirpath string, offset *binlogscheme.BinlogOffset) (*Binlog, error) {
 	return openAtIndex(dirpath, offset, false)
 }
 
-func OpenAtIndex(dirpath string, offset *Offset.Offset, write bool) (*Binlog, error) {
+func OpenAtIndex(dirpath string, offset *binlogscheme.BinlogOffset, write bool) (*Binlog, error) {
 	names, err := readBinlogNames(dirpath)
 	if err != nil {
 		return nil, err
 	}
 
-	nameIndex, ok := searchIndex(names, Offset.Index)
+	nameIndex, ok := searchIndex(names, offset.Index)
 	if !ok {
 		return nil, ErrFileNotFound
 	}
+
+	first := true
 
 	rcs := make([]io.ReadCloser, 0)
 	rs  := make([io.Reader, 0])
@@ -105,6 +106,20 @@ func OpenAtIndex(dirpath string, offset *Offset.Offset, write bool) (*Binlog, er
 				return nil, err
 			}
 
+			if first {
+				ret, err  = rf.Seek(offset.Offset, os.SEEK_SET)
+				if err != nil {
+					closeAll(rcs...)
+					return nil, err
+				}
+				
+				if ret <= offser.Offset {
+					continue
+				}
+
+				first = false
+			}
+
 			ls 	= append(ls, rf)
 			rcs	= append(rcs, rf)
 		}
@@ -116,6 +131,7 @@ func OpenAtIndex(dirpath string, offset *Offset.Offset, write bool) (*Binlog, er
 	binlog := &Binlog{
 		dir : 		dirpath,
 		start:  	offset,
+		decoder:   	newDecoder(offset, rs...),
 		readCloser: 	closer,
 		locks:		ls,
 	}
@@ -131,6 +147,31 @@ func OpenAtIndex(dirpath string, offset *Offset.Offset, write bool) (*Binlog, er
 	}
 
 	return binlog, nil
+}
+
+func (b *Binlog) Read(offset *binglogscheme.BinlogOffset, nums uint64) (ents []binlogscheme.Entry, newOffset *binglogscheme.BinlogOffset, err error)  {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var ent &binlogscheme.Entry{}
+	decoder := b.decoder
+
+	err = decoder.decode(ent)
+	for index := 0; index < nums && err == nil; index++ {
+		
+		newEnt = binlogscheme.Entry {
+			CommitTs:	ent.CommitTs,
+			StartTs:	ent.StartTs,
+			Size:		ent.Size,
+			Payload:	ent.Payload,
+		}
+		ents = append(ents, newEnt)
+		err = decoder.decode(ent)
+	}
+
+	newOffset = decoder.lastOffset()
+
+	return 
 }
 
 func (b *Binlog) renameBinlog(tmpdirpath string) (*Binlog, error) {
