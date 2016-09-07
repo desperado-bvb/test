@@ -13,6 +13,7 @@ var (
 	badBinlogName = errors.New("bad file name")
 )
 
+//check the dir is already used
 func Exist(dirpath string) bool {
 	names, err := fileutil.ReadDir(dirpath)
 	if err != nil {
@@ -55,7 +56,7 @@ func readBinlogNames(dirpath string) ([]string, error) {
 func checkBinlogNames(names []string) []string {
 	fnames := make([]string, 0)
 	for _, name := range names {
-		if _, _, err := parseBinlogName(name); err != nil {
+		if  _, err := parseBinlogName(name); err != nil {
 			if !strings.HasSuffix(name, ".tmp") {
 				log.Warningf("ignored file %v in wal", name)
 			}
@@ -76,6 +77,7 @@ func parseBinlogName(str string) (index uint64, err error) {
 	return
 }
 
+// the file name format is like 0000000000000001.bl
 func fileName(index uint64) string {
 	return fmt.Sprintf("%016d.bl", index)
 }

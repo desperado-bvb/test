@@ -9,7 +9,7 @@ type Entry struct {
 	StartTs		int64
 	Size		int64
 	Payload		[]byte
-	Offset		*Offset
+	Offset		Offset
 }
 
 const magicByte = 0x01
@@ -18,7 +18,7 @@ var (
 	ErrorFormat = errors.New("entry format is error")
 )
 
-func (ent *Entry) Unmarshal(b []byte) error {
+func (ent *Entry) Unmarshal(b []byte, offset *Binlog.BinlogOffset) error {
 	length := len(b)
 
 	if length <= 25 && b[0] != nagicByte {
@@ -53,6 +53,10 @@ func (ent *Entry) Unmarshal(b []byte) error {
         ent.SatrtTs = n	
 
 	ent.Payload = b[25:]
+	ent.Offset = Binlog.BinlogOffset {
+		Index: 	offset.Index,
+		Offset:	offset.Offset,
+	}
 	
 	return nil
 }

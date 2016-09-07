@@ -7,8 +7,7 @@ import (
 
 type decoder struct {
 	brs	[]*bufio.Reader
-	remain	[]byte
-	offset	*Binlog.BinlogOffset
+	offset *Binlog.BinlogOffset
 }
 
 func newDecoder(offset *Binlog.BinlogOffset, r ...io.Reader) {
@@ -20,7 +19,7 @@ func newDecoder(offset *Binlog.BinlogOffset, r ...io.Reader) {
 
 	return &decoder {
 		brs:	readers,
-		offset: offset,
+		offset:	offset,
 	}
 }
 
@@ -35,7 +34,7 @@ func (d *decoder) decode(ent *binlogscheme.Entry) error {
 		if len(d.brs) == 0 {
 			return io.EOF
 		}
-		d.offset.Index  = d.offset.Index+1
+		d.offset.Index += 1
 		d.offset.Offset = 0
 		return d.decode(ent)
 	}
@@ -52,12 +51,13 @@ func (d *decoder) decode(ent *binlogscheme.Entry) error {
 		}
 		return err
 	}
-	if err := ent.Unmarshal(data[:entBytes]); err != nil {
+
+	if err := ent.Unmarshal(data[:entBytes], d.offset); err != nil {
 		return err
 	}
 
-	ent.Offset = d.offset
-	d.offset.Offset += entBytes + padBytes + 8
+	d.offset.Offset += entBytes +  padBytes + 8
+
 	return nil
 }
 
