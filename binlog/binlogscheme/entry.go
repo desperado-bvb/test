@@ -1,12 +1,15 @@
 package binlogscheme
 
-import "errors"
+import (
+	"errors"
+)
 
 type Entry struct {
-	CommitTs	int64 `json:"commitTs"`
-	StartTs		int64 `json:"startTs"`
-	Size		int64 `json:"size"`
-	Payload		[]byte`json:"payload"`
+	CommitTs	int64
+	StartTs		int64
+	Size		int64
+	Payload		[]byte
+	Offset		*Offset
 }
 
 var (

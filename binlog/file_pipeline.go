@@ -19,10 +19,11 @@ type filePipeline struct {
 	donec	chan struct{}
 }
 
-func newFilePipeline(dir string, fileSize int64) *filePipeline {
+func newFilePipeline(dir string, count int, fileSize int64) *filePipeline {
 	fp := &filePipeline {
 		dir:	dir,
 		size:	fileSize,
+		count:	count,
 		filec:	make(chan *fileutil.LockedFile),
 		errc:	make(chan error, 1),
 		donec:	make(chan struct{})

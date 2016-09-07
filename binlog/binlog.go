@@ -16,7 +16,6 @@ var (
 type Binlog struct {
 	dir		string
 
-	start		*binlogscheme.BinlogOffset
 	decoder		*decoder
 	readClose	func() error
 	
@@ -59,6 +58,7 @@ func Create(dirpath string) (*Binlog, error) {
 
 	binlog := &Binlog{
 		dir:      dirpath,
+		encoder:  newEncoder(f, 0),
 	}
 	binlog.locks = append(binlog.locks, f)
 	return binlog.renameFile(tmpdirpath)
@@ -120,7 +120,7 @@ func OpenAtIndex(dirpath string, offset *binlogscheme.BinlogOffset, write bool) 
 				first = false
 			}
 
-			ls 	= append(ls, rf)
+			ls 	= append(ls, nil)
 			rcs	= append(rcs, rf)
 		}
 
@@ -138,18 +138,18 @@ func OpenAtIndex(dirpath string, offset *binlogscheme.BinlogOffset, write bool) 
 
 	if write {
 		binlog.readClose = nil
-		if _, err := parseBinlogName(path.Base(binlog.tail().Name())); err != nil {
+		if index, err := parseBinlogName(path.Base(binlog.tail().Name())); err != nil {
 			closer()
 			return nil ,err
 		}
 
-		binlog.fp = newFilePipeline(binlog.dir, SegmenntSizeBytes)
+		binlog.fp = newFilePipeline(binlog.dir, int(index)+1, SegmenntSizeBytes)
 	}
 
 	return binlog, nil
 }
 
-func (b *Binlog) Read(offset *binglogscheme.BinlogOffset, nums uint64) (ents []binlogscheme.Entry, newOffset *binglogscheme.BinlogOffset, err error)  {
+func (b *Binlog) Read(offset *binglogscheme.BinlogOffset, nums uint64) (ents []binlogscheme.Entry, err error)  {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -164,14 +164,156 @@ func (b *Binlog) Read(offset *binglogscheme.BinlogOffset, nums uint64) (ents []b
 			StartTs:	ent.StartTs,
 			Size:		ent.Size,
 			Payload:	ent.Payload,
+			Offset:		ent.Offset,
 		}
 		ents = append(ents, newEnt)
 		err = decoder.decode(ent)
 	}
 
-	newOffset = decoder.lastOffset()
-
 	return 
+}
+
+func (wb *Binlog) Save(ents []binlogscheme.Entry) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(ents) == 0 {
+		return nil
+	}
+
+	for i := range ents {
+		if err := b.saveEntry(&ents[i]); err != nil {
+			return err
+		}
+	}
+
+	curOff, err := b.tail().Seek(0, os.SEEK_CUR)
+	if err != nil {
+		return err
+	}
+	if curOff < SegmentSizeBytes {
+		return b.sync()
+		return nil
+	}
+
+	return w.cut()
+}
+
+func (b *Binlog) cut() error {
+	off, serr := b.tail().Seek(0, os.SEEK_CUR)
+	if serr != nil {
+		return serr
+	}
+	if err := b.tail().Truncate(off); err != nil {
+		return err
+	}
+	if err := b.sync(); err != nil {
+		return err
+	}
+
+	fpath := path.Join(b.dir, BinlogName(b.seq()))
+
+	newTail, err := b.fp.Open()
+	if err != nil {
+		return err
+	}
+
+	b.locks = append(b.locks, newTail)
+
+	if err = os.Rename(newTail.Name(), fpath); err != nil {
+		return err
+	}
+	newTail.Close()
+
+	if newTail, err = fileutil.LockFile(fpath, os.O_WRONLY, fileutil.PrivateFileMode); err != nil {
+		return err
+	}
+
+	w.locks[len(w.locks)-1] = newTail
+	w.encoder = newEncoder(w.tail())
+
+	log.Infof("segmented binlog file %v is created", fpath)
+	return nil
+}
+
+func (b *Binlog) sync() error {
+	if b.encoder != nil {
+		if err := b.encoder.flush(); err != nil {
+			return err
+		}
+	}
+	start := time.Now()
+	err := fileutil.Fdatasync(b.tail().File)
+
+	duration := time.Since(start)
+	if duration > warnSyncDuration {
+		log.Warningf("sync duration of %v, expected less than %v", duration, warnSyncDuration)
+	}
+
+	return err
+}
+
+func (b *Binlog) ReleaseLockTo(index uint64) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	var smaller int
+	found := false
+
+	for i, l := range b.locks {
+		lockIndex, err := parseWalName(path.Base(l.Name()))
+		if err != nil {
+			return err
+		}
+		if lockIndex >= index {
+			smaller = i - 1
+			found = true
+			break
+		}
+	}
+
+	if !found && len(b.locks) != 0 {
+		smaller = len(b.locks) - 1
+	}
+
+	if smaller <= 0 {
+		return nil
+	}
+
+	for i := 0; i < smaller; i++ {
+		if b.locks[i] == nil {
+			continue
+		}
+		b.locks[i].Close()
+	}
+	b.locks = b.locks[smaller:]
+
+	return nil
+}
+
+func (b *Binlog) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.fp != nil {
+		b.fp.Close()
+		b.fp = nil
+	}
+
+	if b.tail() != nil {
+		if err := b.sync(); err != nil {
+			return err
+		}
+	}
+	for _, l := range b.locks {
+		if l == nil {
+			continue
+		}
+		if err := l.Close(); err != nil {
+			log.Errorf("failed to unlock during closing wal: %s", err)
+		}
+	}
+	return nil
 }
 
 func (b *Binlog) renameBinlog(tmpdirpath string) (*Binlog, error) {
@@ -183,7 +325,7 @@ func (b *Binlog) renameBinlog(tmpdirpath string) (*Binlog, error) {
 		return nil, err
 	}
 
-	b.fp = newFilePipeline(w.dir, SegmentSizeBytes)
+	b.fp = newFilePipeline(w.dir, 0, SegmentSizeBytes)
 	return b, nil
 }
 
@@ -192,6 +334,18 @@ func (b *Binlog) tail() *fileutil.LockedFile {
 		return b.locks[len(b.locks)-1]
 	}
 	return nil
+}
+
+func (b *Binlog) seq() uint64 {
+	t := b.tail()
+	if t == nil {
+		return 0
+	}
+	seq, err := parseBinlogName(path.Base(t.Name()))
+	if err != nil {
+		plog.Fatalf("bad binlog name %s (%v)", t.Name(), err)
+	}
+	return seq
 }
 
 func closeAll(rcs ...io.ReadCloser) error {

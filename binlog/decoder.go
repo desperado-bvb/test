@@ -37,7 +37,7 @@ func (d *decoder) decode(ent *binlogscheme.Entry) error {
 		}
 		d.offset.Index  = d.offset.Index+1
 		d.offset.Offset = 0
-		return d.decode(rec)
+		return d.decode(ent)
 	}
 	if err != nil {
 		return err
@@ -56,6 +56,7 @@ func (d *decoder) decode(ent *binlogscheme.Entry) error {
 		return err
 	}
 
+	ent.Offset = d.offset
 	d.offset.Offset += entBytes + padBytes + 8
 	return nil
 }
