@@ -1,10 +1,11 @@
 package binlog
 
-const walPageBytes = 8 * minSectorSize
+
+const binlogPageBytes  = 4096
 
 type encoder struct {
 	mu sync.Mutex
-	bw *ioutil.PageWriter
+	bw io.Write
 
 	buf       []byte
 	uint64buf []byte
@@ -12,7 +13,7 @@ type encoder struct {
 
 func newEncoder(w io.Writer) *encoder {
 	return &encoder{
-		bw:  ioutil.NewPageWriter(w, walPageBytes),
+		bw:        w
 		buf:       make([]byte, 1024*1024),
 		uint64buf: make([]byte, 8),
 	}
@@ -73,4 +74,3 @@ func writeUint64(w io.Writer, n uint64, buf []byte) error {
 	_, err := w.Write(buf)
 	return err
 }
-
